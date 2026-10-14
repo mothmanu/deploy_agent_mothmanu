@@ -217,11 +217,77 @@ deploy(){
     # Optionally change the alert thresholds. This runs before the trap is removed, so it is still protected.
     update_thresholds "attendance_tracker_$name/Helpers/config.json" || { trap - INT TSTP; return 1; }
     trap - INT TSTP #Turn the trap off here so Ctrl+C later doesn't archive and delete a finished project.
+    info "Deployment of attendance_tracker_$name complete"
+    # Verify the deployment by starting the app. If it loads the roster and config, the structure is correct.
+    info "Verifying deployment by starting the app..."
+    run "attendance_tracker_$name"
 }
 
-# Runs attendance_checker.py
+# Lists the deployed projects in the current folder and asks which one to use.
+# Sets project_dir for run and archive. Returns 1 if there is nothing valid to pick.
+choose_project(){
+    local found=0 dir choice
+    info "Deployed projects:"
+    for dir in attendance_tracker_*/
+    do
+        # If nothing matches, bash keeps the pattern as plain text, so skip anything that isn't a real folder
+        [ -d "$dir" ] || continue
+        dir=${dir%/}                          # remove the trailing /
+        echo "  ${dir#attendance_tracker_}"   # show only the name the user typed at deploy
+        found=1
+    done
+    if (( found == 0 )); then
+        error "No deployed projects found in $PWD. Run Deploy first."
+        return 1
+    fi
+    read -r -p "Project name: " choice || return 1
+    # Same naming rule as deploy, so input like ../ can never point outside the project folders
+    if [[ ! $choice =~ ^[A-Za-z0-9_-]+$ ]] || [ ! -d "attendance_tracker_$choice" ]; then
+        error "No project called '$choice'"
+        return 1
+    fi
+    project_dir="attendance_tracker_$choice"
+}
+
+# Runs attendance_checker.py inside a deployed project.
+# Deploy passes the project folder in as $1; from the menu, the user picks one.
 run(){
-    info "Run: not implemented yet"
+    if [ -n "$1" ]; then
+        project_dir="$1"
+    else
+        choose_project || return 1
+    fi
+
+    # The app opens Helpers/ and reports/ with relative paths, so check everything is in place first
+    local file status
+    for file in attendance_checker.py Helpers/assets.csv Helpers/config.json
+    do
+        if [ ! -f "$project_dir/$file" ]; then
+            error "$project_dir/$file is missing. Deploy this project again."
+            return 1
+        fi
+    done
+    if [ ! -d "$project_dir/reports" ]; then
+        error "$project_dir/reports/ is missing. Deploy this project again."
+        return 1
+    fi
+
+    info "Starting attendance_checker.py in $project_dir (Ctrl+C stops marking)"
+    # The ( ) subshell does the cd, so the script itself stays in its own folder afterwards.
+    # The file has no shebang line, so it is started with python3 rather than ./attendance_checker.py
+    ( cd "$project_dir" && python3 attendance_checker.py )
+    status=$?
+
+    # The app exits with 0 when marking is finished and 130 when the instructor presses Ctrl+C.
+    # The deploy trap was already removed, so Ctrl+C here never archives or deletes the project.
+    if (( status == 0 )); then
+        info "Marking session finished. Logs are in $project_dir/reports/"
+    elif (( status == 130 )); then
+        info "Marking session stopped with Ctrl+C. The project was not changed by the script."
+    else
+        error "attendance_checker.py exited with code $status"
+        return 1
+    fi
 }
 
 # After running, archive the generated logs
