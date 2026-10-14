@@ -47,7 +47,7 @@ deploy(){
     preflight || return 1   #If preflight fails, stop deploy here and go back to the menu
     info "Preflight checks passed"
     # Validates user entry in case users try to use the wrong folder naming convention
-    read -r -p "Enter the name of the directory(letters, digits, _ or -): " name 
+    read -r -p "Enter a project name(letters, digits, _ or -): " name 
     if [[ ! $name =~ ^[A-Za-z0-9_-]+$ ]]; then
         error "Invalid name '$name': use only letters, digits, _ or -"
         return 1
