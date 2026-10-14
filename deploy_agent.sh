@@ -154,6 +154,12 @@ deploy(){
             error "Invalid option"
         fi
     done
+    # Makes the app executable
+    chmod +x "attendance_tracker_$name/attendance_checker.py" || { error "Could not make python file executable"; trap - INT TSTP; return 1; }
+    # Other users shouldn't be able to read or change grading thresholds in the config
+    chmod 600 "attendance_tracker_$name/Helpers/config.json" || { error "Could not restrict config.json permissions"; trap - INT TSTP; return 1; }
+    info "Permissions set:"
+    stat -c '%A %n' "attendance_tracker_$name/attendance_checker.py" "attendance_tracker_$name/Helpers/config.json"
     trap - INT TSTP #Turn the trap off here so Ctrl+C later doesn't archive and delete a finished project.
 }
 
