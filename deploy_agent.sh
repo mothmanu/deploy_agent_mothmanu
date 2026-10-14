@@ -2,6 +2,10 @@
 # Absolute path of the folder this script is in, so templates/ is found however the script is launched
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEMPLATES_DIR="$SCRIPT_DIR/templates"
+# Sample names for Option B. Every first name is paired with every last name,
+# so 10 x 10 = 100 unique students, enough for the 1-50 limit
+first_names=(Ada Oyin Aisha Chidi Tunde Ngozi Emeka Zainab Ifeoma Bola)
+last_names=(Obi Adeleke Hauwa Okafor Bello Eze Adebayo Musa Danjuma Ibrahim)
 
 # Helpers for consistent output: info for progress, error for problems (sent to stderr)
 info() {
@@ -90,9 +94,67 @@ deploy(){
     mkdir -p "attendance_tracker_$name"/Helpers || { error "Could not create Helpers folder"; trap - INT TSTP; return 1; }
     mkdir -p "attendance_tracker_$name"/reports || { error "Could not create reports folder"; trap - INT TSTP; return 1; }
     info "Created attendance_tracker_$name/ with Helpers/ and reports/"
-    read -r -p "TEMP: press Enter to finish deploy... " # TEMP: remove in Step 6
-    trap - INT TSTP #Turn the trap off here so Ctrl+C later doesn't archive and delete a finished project.
+    # Copies files from template unchanged into target directory
+    cp "$TEMPLATES_DIR/attendance_checker.py" "attendance_tracker_$name" || { error "Could not copy py file"; trap - INT TSTP; return 1; }
+    cp "$TEMPLATES_DIR/config.json" "attendance_tracker_$name/Helpers" || { error "Could not copy json file"; trap - INT TSTP; return 1; }
 
+    while true
+    do
+        # Ask the user whether they want to copy data from template or generate a fresh roster
+        read -r -p "Roster: (A) copy from template, (B) generate fresh: " roster_option || on_interrupt
+        if [ "${roster_option,,}" == "a" ]; then
+            while true
+            do
+                read -r -p "How many students(1-10): " count || on_interrupt
+                if [[ ! $count =~ ^[0-9]+$ ]]; then
+                    error "Invalid entry. Enter a number"
+                elif (( count >= 1 && count <= 10 )); then #The template only has 10 students
+                    info "Number is in range."
+                    break
+                else
+                    error "Number is out of range"
+                fi
+            done
+            # The header line means we have to use count + 1 and total session isn't changed because these rows already have 4 prior sessions
+            head -n $((count + 1)) "$TEMPLATES_DIR/assets.csv" > "attendance_tracker_$name/Helpers/assets.csv" || { error "Could not create assets.csv"; trap - INT TSTP; return 1; }
+            info "Copied $count students from template (total_sessions stays 5)"
+            break
+        elif [ "${roster_option,,}" == "b" ]; then
+            # Ask again until we get a whole number from 1 to 50
+            while true
+            do 
+                read -r -p "How many students(1-50): " count || on_interrupt
+                if [[ $count =~ ^[0-9]+$ ]] && (( count >= 1 && count <= 50 )); then
+                    break
+                fi
+                error "Enter a whole number from 1 to 50"
+            done
+
+            roster="attendance_tracker_$name/Helpers/assets.csv"
+            # Header must match the template exactly, with no spaces after the commas
+            echo "Email,Names,Attendance Count,Absence Count" > "$roster"
+
+            num_first=${#first_names[@]}
+            num_last=${#last_names[@]}
+            for (( i = 0; i < count; i++ ))
+            do
+                # First name changes every row; last name changes once per full cycle of first names
+                first=${first_names[i % num_first]}
+                last=${last_names[(i / num_first) % num_last]}
+                # New students start with 0 attended and 0 absent
+                echo "${first,,}.${last,,}@example.com,$first $last,0,0" >> "$roster"
+            done
+
+            # Fresh roster has no prior sessions, so today is session 1.
+            # \1 keeps the key and spacing; the 1 after it is the new value
+            sed -i -E 's/("total_sessions":[[:space:]]*)[0-9]+/\11/' "attendance_tracker_$name/Helpers/config.json"
+            info "Generated $count students in $roster and set total_sessions to 1"
+            break
+        else
+            error "Invalid option"
+        fi
+    done
+    trap - INT TSTP #Turn the trap off here so Ctrl+C later doesn't archive and delete a finished project.
 }
 
 # Runs attendance_checker.py
