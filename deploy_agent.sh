@@ -290,9 +290,42 @@ run(){
     fi
 }
 
-# After running, archive the generated logs
+# After running, archive the generated logs into timestamped files:
+#   reports/attendance.log -> archives/attendance/attendance_YYYYMMDD_HHMMSS.log
+#   reports/absent.log     -> archives/absent/absent_YYYYMMDD_HHMMSS.log
+# Logs are moved, not copied. The app appends to its logs, so moving them means
+# the next marking session starts with fresh logs, like real log rotation.
 archive(){
-    info "Archive: not implemented yet"
+    choose_project || return 1
+    local ts log src dest archived=0
+
+    # One timestamp for the whole archive run, so both logs from the same session share it
+    ts=$(date +%Y%m%d_%H%M%S)
+    mkdir -p "$project_dir/archives/attendance" "$project_dir/archives/absent" ||
+        { error "Could not create $project_dir/archives/"; return 1; }
+
+    for log in attendance absent
+    do
+        src="$project_dir/reports/$log.log"
+        dest="$project_dir/archives/$log/${log}_$ts.log"
+        if [ ! -f "$src" ]; then
+            # absent.log is only created when someone was absent, so a missing log is normal, not an error
+            info "No $log.log in $project_dir/reports/, skipped"
+            continue
+        fi
+        # Never overwrite an earlier archive (only possible when archiving twice in the same second)
+        if [ -e "$dest" ]; then
+            error "$dest already exists, skipped $log.log"
+            continue
+        fi
+        mv "$src" "$dest" || { error "Could not archive $src"; return 1; }
+        info "Archived $log.log -> $dest"
+        archived=$((archived + 1))
+    done
+
+    if (( archived == 0 )); then
+        info "Nothing to archive. Run a marking session first."
+    fi
 }
 
 # Menu loop for the user
