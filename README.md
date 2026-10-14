@@ -6,6 +6,19 @@ progress, it also handles Ctrl+C and Ctrl+Z cleanly.
 
 ---
 
+## Demo Video
+
+**Watch the walkthrough:** https://youtu.be/fYbHWtyHX-I
+
+The video covers:
+- the approach and how the script is built, section by section
+- a live deploy with Option A and a threshold update
+- a short marking session, then archiving the logs
+- edge cases: invalid input, an existing folder, a missing `absent.log`
+- interrupting a deploy with Ctrl+C, then checking the `.zip` and that the folder was removed
+
+---
+
 ## Requirements
 
 - Linux or WSL (Ubuntu). Run the script from the Linux filesystem (for example `~/`), not `/mnt/c/...`,
