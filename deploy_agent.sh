@@ -46,6 +46,31 @@ preflight() {
 deploy(){
     preflight || return 1   #If preflight fails, stop deploy here and go back to the menu
     info "Preflight checks passed"
+    # Validates user entry in case users try to use the wrong folder naming convention
+    read -r -p "Enter the name of the directory(letters, digits, _ or -): " name 
+    if [[ ! $name =~ ^[A-Za-z0-9_-]+$ ]]; then
+        error "Invalid name '$name': use only letters, digits, _ or -"
+        return 1
+    fi
+    # In case file permissions are denied, we get a clear error message
+    if [ ! -w . ]; then
+        error "Cannot write to current folder: $PWD"
+        return 1
+    fi
+    if [ -d "attendance_tracker_$name" ]; then 
+        # Folder already exists: ask before deleting it, so a project is never overwritten silently
+        read -r -p "Would you like to overwrite(y/n): " choice
+        if [ "${choice,,}" == "y" ]; then
+            rm -rf "attendance_tracker_$name"
+            info "Removed existing folder attendance_tracker_$name"
+        else 
+            error "Folder kept, deploy cancelled"
+            return 1
+        fi
+    fi
+    mkdir -p "attendance_tracker_$name"/Helpers || { error "Could not create Helpers folder"; return 1; }
+    mkdir -p "attendance_tracker_$name"/reports || { error "Could not create reports folder"; return 1; }
+    info "Created attendance_tracker_$name/ with Helpers/ and reports/"
 }
 
 # Runs attendance_checker.py
