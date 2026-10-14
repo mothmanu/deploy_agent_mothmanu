@@ -63,6 +63,60 @@ on_interrupt(){
     exit 130
 }
 
+# Offers to change the warning/failure thresholds in the deployed config.json.
+# Called from deploy while the trap is still active, so Ctrl+C or Ctrl+D here also archives the project.
+update_thresholds(){
+    local config="$1"
+    local answer warning failure
+    read -r -p "Update attendance thresholds? (y/n): " answer || on_interrupt
+    if [ "${answer,,}" != "y" ]; then
+        info "Keeping default thresholds (warning 75, failure 50)"
+        return 0
+    fi
+
+    # Ask for both values until every check passes. Nothing is written to the file before that.
+    while true
+    do
+        read -r -p "Warning threshold % [75]: " warning || on_interrupt
+        read -r -p "Failure threshold % [50]: " failure || on_interrupt
+        # ${var:-default} uses the default when the user just presses Enter
+        warning=${warning:-75}
+        failure=${failure:-50}
+
+        # Whole numbers only, with no leading zeros: bash reads 08 as octal, and 08 is invalid JSON
+        if [[ ! $warning =~ ^(0|[1-9][0-9]*)$ || ! $failure =~ ^(0|[1-9][0-9]*)$ ]]; then
+            error "Thresholds must be whole numbers like 75 (got '$warning' and '$failure')"
+        # They are percentages, so they cannot go above 100
+        elif (( warning > 100 || failure > 100 )); then
+            error "Thresholds must be between 0 and 100"
+        # A student should be warned before they fail, so failure must be lower than warning
+        elif (( failure >= warning )); then
+            error "Failure threshold ($failure) must be lower than warning threshold ($warning)"
+        else
+            break
+        fi
+    done
+
+    # Replace only the number after each key. \1 puts back the key and its spacing,
+    # so the file is not reformatted or reordered. The quotes switch from '...' to "$var"
+    # because bash does not expand variables inside single quotes.
+    sed -i -E \
+        -e 's/("warning":[[:space:]]*)[0-9]+/\1'"$warning"'/' \
+        -e 's/("failure":[[:space:]]*)[0-9]+/\1'"$failure"'/' \
+        "$config" || { error "Could not update $config"; return 1; }
+
+    # sed succeeds even when its pattern matches nothing, so check the new values are really in the file
+    if ! grep -Eq "\"warning\":[[:space:]]*$warning([^0-9]|$)" "$config" ||
+       ! grep -Eq "\"failure\":[[:space:]]*$failure([^0-9]|$)" "$config"; then
+        error "New thresholds were not found in $config"
+        return 1
+    fi
+    info "Thresholds updated:"
+    grep -E '"(warning|failure)"' "$config"
+    # GNU sed -i keeps the file's permissions, so this should still show owner-only (600)
+    stat -c '%A %n' "$config"
+}
+
 # Create the directories, files and populate them
 deploy(){
     preflight || return 1   #If preflight fails, stop deploy here and go back to the menu
@@ -160,6 +214,8 @@ deploy(){
     chmod 600 "attendance_tracker_$name/Helpers/config.json" || { error "Could not restrict config.json permissions"; trap - INT TSTP; return 1; }
     info "Permissions set:"
     stat -c '%A %n' "attendance_tracker_$name/attendance_checker.py" "attendance_tracker_$name/Helpers/config.json"
+    # Optionally change the alert thresholds. This runs before the trap is removed, so it is still protected.
+    update_thresholds "attendance_tracker_$name/Helpers/config.json" || { trap - INT TSTP; return 1; }
     trap - INT TSTP #Turn the trap off here so Ctrl+C later doesn't archive and delete a finished project.
 }
 
