@@ -42,6 +42,23 @@ preflight() {
     return "$missing"
 }
 
+# Handles Ctrl+C or Ctrl+Z presses. Only active while deploy is creating the project
+on_interrupt(){
+    echo
+    error "Deployment interrupted. Archiving incomplete project..."
+    if [ -d "attendance_tracker_$name" ]; then
+        rm -f "attendance_tracker_${name}_archive.zip"
+        if zip -r -q "attendance_tracker_${name}_archive.zip" "attendance_tracker_$name"; then    
+            rm -rf "attendance_tracker_$name"
+            info "Removed incomplete folder attendance_tracker_$name"
+            info "Zip succeeded. It is located at $PWD/attendance_tracker_${name}_archive.zip"
+        else
+            error "Could not create archive, folder left in place"
+        fi
+    fi
+    exit 130
+}
+
 # Create the directories, files and populate them
 deploy(){
     preflight || return 1   #If preflight fails, stop deploy here and go back to the menu
@@ -68,9 +85,14 @@ deploy(){
             return 1
         fi
     fi
-    mkdir -p "attendance_tracker_$name"/Helpers || { error "Could not create Helpers folder"; return 1; }
-    mkdir -p "attendance_tracker_$name"/reports || { error "Could not create reports folder"; return 1; }
+    # Trap is set after the overwrite question so it never deletes a project that already existed
+    trap on_interrupt INT TSTP
+    mkdir -p "attendance_tracker_$name"/Helpers || { error "Could not create Helpers folder"; trap - INT TSTP; return 1; }
+    mkdir -p "attendance_tracker_$name"/reports || { error "Could not create reports folder"; trap - INT TSTP; return 1; }
     info "Created attendance_tracker_$name/ with Helpers/ and reports/"
+    read -r -p "TEMP: press Enter to finish deploy... " # TEMP: remove in Step 6
+    trap - INT TSTP #Turn the trap off here so Ctrl+C later doesn't archive and delete a finished project.
+
 }
 
 # Runs attendance_checker.py
